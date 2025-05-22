@@ -1,20 +1,14 @@
-import pathlib
 import json
-from typing import List, Tuple
 import multiprocessing as mp
+import pathlib
+from typing import List, Tuple
 
-from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.algorithms.moo.moead import MOEAD
-from pymoo.algorithms.moo.sms import SMSEMOA
-from pymoo.optimize import minimize
-
-from pymoo.util.reference_direction import UniformReferenceDirectionFactory
-import numpy as np
 import matplotlib.pyplot as plt
-from pymoo.core.problem import StarmapParallelization
-
-from salb import Salb, Task, DuplicateElimination
+import networkx as nx
+import numpy as np
+from salb import Salb, Task
 from solution import Solution
+
 
 def visualize_pf(pf: np.ndarray, filepath=None):
     plt.scatter(pf[:, 0], pf[:, 1])
@@ -44,37 +38,14 @@ if __name__ == "__main__":
             i, j = precedence_dict["i"], precedence_dict["j"]
             precedence_list.append((i,j))
         
-    # pool = mp.Pool(4)
-    # runner = StarmapParallelization(pool.starmap)
-    problem = Salb(tasks, precedence_list)#, elementwise_runner=runner)
-    duplicate_elimination = DuplicateElimination(problem.task_times)
+    problem = Salb(tasks, precedence_list)
+    ts_list = []
+    for ts in nx.all_topological_sorts(problem.precedence_graph):
+        ts_list.append(ts)
+        if len(ts_list)>10000:
+            break
+    print(len(ts_list))
+    # print()
+    print(problem.precedence_graph)
     
-    algo = NSGA2(pop_size=500)
-    algo_name = "NSGA-II"
-    
-    # ref_dirs = UniformReferenceDirectionFactory(2, n_partitions=500).do()
-    # algo = MOEAD(ref_dirs=ref_dirs)
-    # algo_name = "MOEAD"
-    
-    # algo = SMSEMOA(pop_size=500)
-    # algo_name = "SMSEMOA"
-    
-    
-    result = minimize(problem, algo, verbose=True)
-    final_pop = result.algorithm.opt
-    no_duplicate_pop = duplicate_elimination.do(final_pop)
-    
-    X = np.stack([no_duplicate_pop[i].X for i in range(len(no_duplicate_pop))])
-    pf = np.stack([no_duplicate_pop[i].F for i in range(len(no_duplicate_pop))])
-    # print(result.pf)
-    result_dir = pathlib.Path()/"results"/algo_name
-    result_dir.mkdir(parents=True, exist_ok=True)
-    f_csv_filepath = result_dir/"f.csv"
-    pf_fig_filepath = result_dir/"pf.jpg"
-    visualize_pf(pf, pf_fig_filepath)
-    np.savetxt(f_csv_filepath.absolute(), pf, delimiter=",", fmt="%g")
-    for i,x in enumerate(X):
-        solution = problem.decode(x)
-        fig_filepath = result_dir/(f"solution_visualization_{i}.jpg")
-        solution.save_visualization(fig_filepath)
     
