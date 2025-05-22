@@ -8,7 +8,7 @@ import networkx as nx
 import numpy as np
 from salb import Salb, Task
 from solution import Solution
-
+from dp import dp_caller
 
 def visualize_pf(pf: np.ndarray, filepath=None):
     plt.scatter(pf[:, 0], pf[:, 1])
@@ -39,13 +39,35 @@ if __name__ == "__main__":
             precedence_list.append((i,j))
         
     problem = Salb(tasks, precedence_list)
-    ts_list = []
+    list_of_assignments = []
+    ts_order = None
     for ts in nx.all_topological_sorts(problem.precedence_graph):
-        ts_list.append(ts)
-        if len(ts_list)>10000:
-            break
-    print(len(ts_list))
-    # print()
-    print(problem.precedence_graph)
+        task_times = problem.task_times
+        ts_arr = np.asanyarray(ts, dtype=int)
+        ts_order = ts_arr
+        ordered_task_times = task_times[ts_arr-1]
+        list_of_assignments = dp_caller(ordered_task_times)
+        break
+    correct_list_of_assignments = []
+    solutions: List[Solution] = []
+    
+    for assignments in list_of_assignments:
+        real_assignments = []
+        for assignment in assignments:
+            if len(assignment)==0:
+                continue
+            real_assignment = ts_order[assignment]
+            real_assignments.append(real_assignment)
+        num_used_workstations = len(real_assignments)
+        solution = Solution(num_used_workstations, len(tasks), task_times)
+        solution.num_used_work_stations = num_used_workstations
+        for wi, real_assignment in enumerate(real_assignments):
+            for ti in real_assignment:
+                solution.task_ws_assignment[ti-1]=wi
+            solution.task_sequences[wi] = real_assignment-1
+        
+        
+    
+        
     
     
