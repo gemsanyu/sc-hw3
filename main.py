@@ -195,11 +195,11 @@ if __name__ == "__main__":
         
     result_dir = pathlib.Path()/"results"
     result_dir.mkdir(parents=True, exist_ok=True)
-    # for i, solution in enumerate(solutions):
-    #     
-    #     
-    #     filepath = result_dir/(f"solutions-{i}.jpg")
-    #     solution.save_visualization(filepath)
+    for i, solution in enumerate(solutions):
+        
+        
+        filepath = result_dir/(f"solutions-{i}.jpg")
+        solution.save_visualization(filepath)
     
     pf = np.asanyarray(pf)
     filepath = result_dir/"pf.jpg"
