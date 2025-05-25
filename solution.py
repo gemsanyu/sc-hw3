@@ -9,7 +9,6 @@ class Solution:
         self.num_tasks = num_tasks
         self.task_times = task_times
         
-        self.task_ws_assignment: List[int] = [999999 for _ in range(num_tasks)]
         self.task_sequences: List[List[int]] = [[] for _ in range(num_available_work_stations)]
     
         self.num_used_work_stations: int = 0
@@ -61,7 +60,7 @@ class Solution:
         ax.set_yticks(range(self.num_used_work_stations))
         ax.set_yticklabels([f"WS {i+1}" for i in range(self.num_used_work_stations)])
         ax.set_xlabel("Time")
-        ax.set_title("Workstation Task Schedule")
+        ax.set_title(f"Workstation Task Schedule, CT={self.cycle_time}")
         ax.grid(True, axis='x', linestyle='--', alpha=0.5)
         plt.tight_layout()
         # plt.show() 
