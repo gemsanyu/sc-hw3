@@ -6,14 +6,14 @@ import numba as nb
 
 def dp_caller(task_times: np.ndarray, num_workstations:int=-1)->List[List[List[int]]]:
     num_tasks = len(task_times)
-    num_workstations = num_tasks
+    if num_workstations == -1:
+        num_workstations = num_tasks
     memo = np.empty((num_tasks, num_workstations), dtype=float)
     policy = np.empty((num_tasks, num_workstations), dtype=int)
     memo, policy = dp(memo, policy, task_times)
     
     list_of_assignments:List[List[List[int]]] = []
     for nw in range(num_workstations):
-        print("nw:",nw)
         assignments:List[List[int]] = [[] for _ in range(nw+1)]
         wi = nw
         ti = num_tasks-1
