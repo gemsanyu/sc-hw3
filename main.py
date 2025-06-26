@@ -46,6 +46,7 @@ def precompute_valid_masks(task_times: np.ndarray, dependency_lists:List[List[in
         valid_mask_binarr_list.append((mask, binarr, total_task_time))
     mi = 0
     while mi < len(valid_mask_binarr_list):
+        print(len(valid_mask_binarr_list))
         mask_i, binarr_i, tt_time_i = valid_mask_binarr_list[mi]
         for mj in range(mi):
             mask_j, binarr_j, tt_time_j = valid_mask_binarr_list[mj]
@@ -140,7 +141,9 @@ def get_assignments(num_tasks: int,
     return assignments
 
 if __name__ == "__main__":
-    instance_filepath = pathlib.Path()/"instance.json"
+    instance_dir = pathlib.Path()/"instances"
+    instance_filepath = instance_dir/"instance_n=20_1.json"
+    # instance_filepath = pathlib.Path()/"small_instance.json"
     tasks: List[Task] = []
     precedence_list: List[Tuple[int, int]] = []
     
@@ -157,6 +160,7 @@ if __name__ == "__main__":
     task_priorities = np.random.random((len(tasks),))    
     problem = Salb(tasks, precedence_list, 18)
     valid_mask_binarr_list = precompute_valid_masks(problem.task_times, problem.dependency_lists)
+    print(len(valid_mask_binarr_list))
     # for adj_list in adj_lists:
     #     print(len(adj_list))
     
@@ -173,7 +177,7 @@ if __name__ == "__main__":
     
     mask_total_task_times_arr = mask_total_task_times_arr[sorted_idx]
     adj_lists = get_mask_adjacency_list(masks_arr)
-    
+    print(len(adj_lists))
     solutions:List[Solution] = []
     pf = []
     for wi in range(problem.num_tasks):
@@ -203,7 +207,8 @@ if __name__ == "__main__":
     
     pf = np.asanyarray(pf)
     filepath = result_dir/"pf.jpg"
-    visualize_pf(pf[:18], filepath)
+    visualize_pf(pf[:18])
+                #  , filepath)
             
     
     
