@@ -1,7 +1,8 @@
 import json
 import pathlib
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Set
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -135,6 +136,9 @@ class State:
     cycle_time: float
     num_workstations: int
         
+def isDominate(state_a: State, state_b: State)->bool:
+    is_dominate = state_a.cycle_time <= state_b.cycle_time and  state_a.num_workstations <= state_b.num_workstations
+    return is_dominate 
 
 def isDominateSoft(state_a: State, state_b: State)->bool:
     # is_a_superset_b = (state_a.mask & state_b.mask) == state_b.mask
@@ -158,55 +162,64 @@ def dp_v2(problem: Salb, valid_mask_binarr_list)->List[State]:
     _, binarr_example, _ = valid_mask_binarr_list[0]
     num_tasks = len(binarr_example)
     binarr_0 = np.zeros((num_tasks,), dtype=int)
-    states_to_expand: List[State] = []
-    states_to_expand.append(State(0,binarr_0,0,0,1))
+    
+    states: Dict[int, List[State]] = defaultdict(list)
+    masks_to_expand: Set[int] = set()
+    states[0] = [State(0,binarr_0,0,0,1)]
+    masks_to_expand.add(0)
+    full_mask = (1 << num_tasks) - 1
     task_times = problem.task_times
-    while len(states_to_expand) > 0:
-        print(len(states_to_expand))
-        current_state: State = states_to_expand.pop()
-        if current_state.binarr.sum()==num_tasks:
-            is_new_solution_nondominated = True
-            for solution in nondominated_solutions:
-                if isDominateHard(solution, current_state):
-                    is_new_solution_nondominated = False 
-                    break
-            if is_new_solution_nondominated:
-                nondominated_solutions = [solution for solution in nondominated_solutions if not isDominateHard(current_state, solution)]            
-                nondominated_solutions.append(current_state)
-            continue
-        
-        current_mask, current_binarr = current_state.mask, current_state.binarr
-        # horizontal move
-        for i in range(num_tasks):
-            if current_binarr[i]==0:
-                mask_i, binarr_i, total_task_time_i = valid_mask_binarr_list[i+1]
-                new_mask = current_mask | mask_i
-                new_binarr = current_binarr | binarr_i
-                binarr_diff = binarr_i & (~current_binarr)
-                additional_task_time = task_times[binarr_diff].sum()
-                new_ws_load = current_state.current_ws_load + additional_task_time
-                new_cycle_time = max(current_state.cycle_time, new_ws_load)
-                new_state = State(new_mask, new_binarr, new_ws_load, new_cycle_time, current_state.num_workstations)
+    while len(masks_to_expand)>0:
+        mask_to_expand = masks_to_expand.pop()
+        print(mask_to_expand, len(nondominated_solutions))
+        while len(states[mask_to_expand])>0:
+            current_state = states[mask_to_expand].pop()
+            current_mask, current_binarr = current_state.mask, current_state.binarr
+            # horizontal move
+            for i in range(num_tasks):
+                if current_binarr[i]==0:
+                    mask_i, binarr_i, total_task_time_i = valid_mask_binarr_list[i+1]
+                    new_mask = current_mask | mask_i
+                    new_binarr = current_binarr | binarr_i
+                    binarr_diff = binarr_i & (~current_binarr)
+                    additional_task_time = task_times[binarr_diff.astype(bool)].sum()
+                    new_ws_load = current_state.current_ws_load + additional_task_time
+                    new_cycle_time = max(current_state.cycle_time, new_ws_load)
+                    
+                    new_state = State(new_mask, new_binarr, new_ws_load, new_cycle_time, current_state.num_workstations)
+                    if new_mask == full_mask:
+                        is_new_solution_nondominated = True
+                        for solution in nondominated_solutions:
+                            if isDominate(solution, new_state):
+                                is_new_solution_nondominated = False 
+                                break
+                        if is_new_solution_nondominated:
+                            nondominated_solutions = [solution for solution in nondominated_solutions if not isDominate(new_state, solution)]            
+                            nondominated_solutions.append(new_state)
+                        continue
+                    
+                    is_new_state_nondominated = True
+                    for state in states[new_mask]:
+                        if isDominate(state, new_state):
+                            is_new_state_nondominated = False
+                            break
+                    if is_new_state_nondominated:
+                        states[new_mask] = [state for state in states[new_mask] if not isDominate(new_state, state)]
+                        states[new_mask].append(new_state)
+                        masks_to_expand.add(new_mask)
+                    
+            # vertical move is only available if the current ws is not empty, otherwise, do not let adding ws if current is empty
+            if current_state.current_ws_load > 0:
+                new_state = State(current_state.mask, current_state.binarr, 0, current_state.cycle_time, current_state.num_workstations+1)
                 is_new_state_nondominated = True
-                for si, state in enumerate(states_to_expand):
-                    if isDominateSoft(state, new_state):
+                for state in states[new_state.mask]:
+                    if isDominate(state, new_state):
                         is_new_state_nondominated = False
                         break
                 if is_new_state_nondominated:
-                    states_to_expand = [state for state in states_to_expand if not isDominateSoft(new_state, state)]
-                    states_to_expand.append(new_state)
-                
-        # vertical move is only available if the current ws is not empty, otherwise, do not let adding ws if current is empty
-        if current_state.current_ws_load > 0:
-            new_state = State(current_state.mask, current_state.binarr, 0, current_state.cycle_time, current_state.num_workstations+1)
-            is_new_state_nondominated = True
-            for si, state in enumerate(states_to_expand):
-                if isDominateSoft(state, new_state):
-                    is_new_state_nondominated = False
-                    break
-            if is_new_state_nondominated:
-                states_to_expand = [state for state in states_to_expand if not isDominateSoft(new_state, state)]
-                states_to_expand.append(new_state)
+                    states[new_state.mask] = [state for state in states[new_state.mask] if not isDominate(new_state, state)]
+                    states[new_state.mask].append(new_state)
+                    masks_to_expand.add(new_state.mask)
     
     return nondominated_solutions
     
