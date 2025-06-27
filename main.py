@@ -1,5 +1,6 @@
 import json
 import pathlib
+from dataclasses import dataclass
 from typing import List, Tuple
 
 import matplotlib.pyplot as plt
@@ -44,21 +45,6 @@ def precompute_valid_masks(task_times: np.ndarray, dependency_lists:List[List[in
         mask_dict[mask]=True
         total_task_time = task_times[dependency_lists[ti]+[ti]].sum()
         valid_mask_binarr_list.append((mask, binarr, total_task_time))
-    mi = 0
-    while mi < len(valid_mask_binarr_list):
-        print(len(valid_mask_binarr_list))
-        mask_i, binarr_i, tt_time_i = valid_mask_binarr_list[mi]
-        for mj in range(mi):
-            mask_j, binarr_j, tt_time_j = valid_mask_binarr_list[mj]
-            new_mask = mask_i | mask_j
-            if new_mask in mask_dict.keys():
-               continue
-            mask_dict[new_mask]=True
-            new_binarr = np.maximum(binarr_i, binarr_j)
-            new_tt_time = (task_times[new_binarr.astype(bool)]).sum()
-            valid_mask_binarr_list.append((new_mask, new_binarr, new_tt_time))
-        mi += 1
-        
     return valid_mask_binarr_list
             
 def get_mask_adjacency_list(masks_arr: np.ndarray)->List[List[int]]:
@@ -140,9 +126,94 @@ def get_assignments(num_tasks: int,
         wi -= 1
     return assignments
 
+
+@dataclass
+class State:
+    mask: int
+    binarr: np.ndarray
+    current_ws_load: float
+    cycle_time: float
+    num_workstations: int
+        
+
+def isDominateSoft(state_a: State, state_b: State)->bool:
+    # is_a_superset_b = (state_a.mask & state_b.mask) == state_b.mask
+    # if not is_a_superset_b:
+    #     return False
+    is_same_mask =state_a.mask == state_b.mask
+    if not is_same_mask:
+        return False
+    is_dominate = state_a.cycle_time <= state_b.cycle_time and  state_a.num_workstations <= state_b.num_workstations
+    return is_dominate 
+
+def isDominateHard(state_a: State, state_b: State)->bool:
+    is_a_superset_b = (state_a.mask & state_b.mask) == state_b.mask
+    if not is_a_superset_b:
+        return False
+    is_dominate = state_a.cycle_time <= state_b.cycle_time and  state_a.num_workstations <= state_b.num_workstations
+    return is_dominate
+
+def dp_v2(problem: Salb, valid_mask_binarr_list)->List[State]:
+    nondominated_solutions: List[State] = []
+    _, binarr_example, _ = valid_mask_binarr_list[0]
+    num_tasks = len(binarr_example)
+    binarr_0 = np.zeros((num_tasks,), dtype=int)
+    states_to_expand: List[State] = []
+    states_to_expand.append(State(0,binarr_0,0,0,1))
+    task_times = problem.task_times
+    while len(states_to_expand) > 0:
+        print(len(states_to_expand))
+        current_state: State = states_to_expand.pop()
+        if current_state.binarr.sum()==num_tasks:
+            is_new_solution_nondominated = True
+            for solution in nondominated_solutions:
+                if isDominateHard(solution, current_state):
+                    is_new_solution_nondominated = False 
+                    break
+            if is_new_solution_nondominated:
+                nondominated_solutions = [solution for solution in nondominated_solutions if not isDominateHard(current_state, solution)]            
+                nondominated_solutions.append(current_state)
+            continue
+        
+        current_mask, current_binarr = current_state.mask, current_state.binarr
+        # horizontal move
+        for i in range(num_tasks):
+            if current_binarr[i]==0:
+                mask_i, binarr_i, total_task_time_i = valid_mask_binarr_list[i+1]
+                new_mask = current_mask | mask_i
+                new_binarr = current_binarr | binarr_i
+                binarr_diff = binarr_i & (~current_binarr)
+                additional_task_time = task_times[binarr_diff].sum()
+                new_ws_load = current_state.current_ws_load + additional_task_time
+                new_cycle_time = max(current_state.cycle_time, new_ws_load)
+                new_state = State(new_mask, new_binarr, new_ws_load, new_cycle_time, current_state.num_workstations)
+                is_new_state_nondominated = True
+                for si, state in enumerate(states_to_expand):
+                    if isDominateSoft(state, new_state):
+                        is_new_state_nondominated = False
+                        break
+                if is_new_state_nondominated:
+                    states_to_expand = [state for state in states_to_expand if not isDominateSoft(new_state, state)]
+                    states_to_expand.append(new_state)
+                
+        # vertical move is only available if the current ws is not empty, otherwise, do not let adding ws if current is empty
+        if current_state.current_ws_load > 0:
+            new_state = State(current_state.mask, current_state.binarr, 0, current_state.cycle_time, current_state.num_workstations+1)
+            is_new_state_nondominated = True
+            for si, state in enumerate(states_to_expand):
+                if isDominateSoft(state, new_state):
+                    is_new_state_nondominated = False
+                    break
+            if is_new_state_nondominated:
+                states_to_expand = [state for state in states_to_expand if not isDominateSoft(new_state, state)]
+                states_to_expand.append(new_state)
+    
+    return nondominated_solutions
+    
+
 if __name__ == "__main__":
     instance_dir = pathlib.Path()/"instances"
-    instance_filepath = instance_dir/"instance_n=20_1.json"
+    instance_filepath = instance_dir/"instance_n=50_1.json"
     # instance_filepath = pathlib.Path()/"small_instance.json"
     tasks: List[Task] = []
     precedence_list: List[Tuple[int, int]] = []
@@ -158,56 +229,73 @@ if __name__ == "__main__":
             i, j = precedence_dict["i"], precedence_dict["j"]
             precedence_list.append((i,j))
     task_priorities = np.random.random((len(tasks),))    
-    problem = Salb(tasks, precedence_list, 18)
+    problem = Salb(tasks, precedence_list, len(tasks))
+    # problem.visualize_precedence_graph()
     valid_mask_binarr_list = precompute_valid_masks(problem.task_times, problem.dependency_lists)
-    print(len(valid_mask_binarr_list))
-    # for adj_list in adj_lists:
-    #     print(len(adj_list))
     
-    num_valid_masks = len(valid_mask_binarr_list)
-    memo = np.full((num_valid_masks, problem.num_tasks+1), -1, dtype=float)
-    policy = np.zeros((num_valid_masks, problem.num_tasks+1), dtype=int)
-    masks_arr = np.asanyarray([mask for (mask, _, _) in valid_mask_binarr_list])
-    binarr_arr = np.stack([binarr for (_, binarr, _) in valid_mask_binarr_list])
-    mask_total_task_times_arr = np.asanyarray([tt_time for (_, _, tt_time) in valid_mask_binarr_list])
+    nondominated_solutions = dp_v2(problem, valid_mask_binarr_list)
+    for solution in nondominated_solutions:
+        print(solution.mask, solution.num_workstations, solution.cycle_time)
     
-    sorted_idx = np.argsort(masks_arr)
-    masks_arr = masks_arr[sorted_idx]
-    binarr_arr = binarr_arr[sorted_idx]
     
-    mask_total_task_times_arr = mask_total_task_times_arr[sorted_idx]
-    adj_lists = get_mask_adjacency_list(masks_arr)
-    print(len(adj_lists))
-    solutions:List[Solution] = []
-    pf = []
-    for wi in range(problem.num_tasks):
-        best_ct = dp(0, wi, masks_arr, mask_total_task_times_arr, adj_lists, memo, policy)    
-        assignments = get_assignments(problem.num_tasks, wi+1, masks_arr, policy)
-        solution = Solution(wi+1, problem.num_tasks, problem.task_times)
-        for wj, assignment in enumerate(assignments):
-            if len(assignment)==0:
-                continue
-            assignment = problem.get_possible_sequence(assignment)
-            solution.task_sequences[wj] = assignment
-        num_used_workstations = 0
-        for assignment in assignments:
-            if len(assignment)>0:
-                num_used_workstations += 1
-        solution.num_used_work_stations = num_used_workstations
-        solutions.append(solution)
-        pf.append((solution.obj))
+    
+    
+    
+    
+    
+    
+    
+    # print(len(valid_mask_binarr_list))
+    # for valid_mask in valid_mask_binarr_list:
+    #     print(valid_mask)
+    # exit()
+    # # for adj_list in adj_lists:
+    # #     print(len(adj_list))
+    
+    # num_valid_masks = len(valid_mask_binarr_list)
+    # memo = np.full((num_valid_masks, problem.num_tasks+1), -1, dtype=float)
+    # policy = np.zeros((num_valid_masks, problem.num_tasks+1), dtype=int)
+    # masks_arr = np.asanyarray([mask for (mask, _, _) in valid_mask_binarr_list])
+    # binarr_arr = np.stack([binarr for (_, binarr, _) in valid_mask_binarr_list])
+    # mask_total_task_times_arr = np.asanyarray([tt_time for (_, _, tt_time) in valid_mask_binarr_list])
+    
+    # sorted_idx = np.argsort(masks_arr)
+    # masks_arr = masks_arr[sorted_idx]
+    # binarr_arr = binarr_arr[sorted_idx]
+    
+    # mask_total_task_times_arr = mask_total_task_times_arr[sorted_idx]
+    # adj_lists = get_mask_adjacency_list(masks_arr)
+    # print(len(adj_lists))
+    # solutions:List[Solution] = []
+    # pf = []
+    # for wi in range(problem.num_tasks):
+    #     best_ct = dp(0, wi, masks_arr, mask_total_task_times_arr, adj_lists, memo, policy)    
+    #     assignments = get_assignments(problem.num_tasks, wi+1, masks_arr, policy)
+    #     solution = Solution(wi+1, problem.num_tasks, problem.task_times)
+    #     for wj, assignment in enumerate(assignments):
+    #         if len(assignment)==0:
+    #             continue
+    #         assignment = problem.get_possible_sequence(assignment)
+    #         solution.task_sequences[wj] = assignment
+    #     num_used_workstations = 0
+    #     for assignment in assignments:
+    #         if len(assignment)>0:
+    #             num_used_workstations += 1
+    #     solution.num_used_work_stations = num_used_workstations
+    #     solutions.append(solution)
+    #     pf.append((solution.obj))
         
-    result_dir = pathlib.Path()/"results"
-    result_dir.mkdir(parents=True, exist_ok=True)
-    for i, solution in enumerate(solutions):
+    # result_dir = pathlib.Path()/"results"
+    # result_dir.mkdir(parents=True, exist_ok=True)
+    # for i, solution in enumerate(solutions):
         
         
-        filepath = result_dir/(f"solutions-{i}.jpg")
-        solution.save_visualization(filepath)
+    #     filepath = result_dir/(f"solutions-{i}.jpg")
+    #     solution.save_visualization(filepath)
     
-    pf = np.asanyarray(pf)
-    filepath = result_dir/"pf.jpg"
-    visualize_pf(pf[:18])
+    # pf = np.asanyarray(pf)
+    # filepath = result_dir/"pf.jpg"
+    # visualize_pf(pf[:18])
                 #  , filepath)
             
     
